@@ -37,10 +37,7 @@ class Redis(base.Driver):
                 "'redis' manually. Use command:\n "
                 "'pip install redis'.")
 
-        parsed_url = parser.urlparse(self.connection_str)
-        self.db = StrictRedis(host=parsed_url.hostname,
-                              port=parsed_url.port,
-                              db=db)
+        self.db = StrictRedis.from_url(self.connection_str)
         self.namespace = "osprofiler:"
 
     @classmethod
