@@ -21,6 +21,29 @@ import six.moves.urllib.parse as parser
 from osprofiler.drivers import base
 from osprofiler import exc
 
+_SCAN_BASE_ID = '''
+local keys = {};
+local values = {};
+local cursor = "0";
+local match = "%(namespace)s" .. ARGV[1];
+repeat
+    local result = redis.call("SCAN", cursor, "MATCH", match)
+    cursor = result[1];
+    keys = result[2];
+    for i, key in ipairs(keys) do
+        local value = redis.call("GET", key);
+        table.insert(values, value);
+    end
+until cursor == "0"
+return values;
+'''
+
+_STORE_BASE_ID = '''
+local namespace = ;
+local data = cjson.decode(ARGV[1]);
+local key = "%(namespace)s" .. data["base_id"] .. "_" .. data["trace_id"] .. "_" + data["timestamp"];
+return redis.call("SET", key, data);
+'''
 
 class Redis(base.Driver):
     def __init__(self, connection_str, db=0, project=None,
@@ -39,6 +62,8 @@ class Redis(base.Driver):
 
         self.db = StrictRedis.from_url(self.connection_str)
         self.namespace = "osprofiler:"
+        self._query_db = self.db.register_script(_SCAN_BASE_ID % {'namespace': self.namespace})
+        self._store_db = self.db.register_script(_STORE_BASE_ID % {'namespace': self.namespace})
 
     @classmethod
     def get_name(cls):
@@ -76,10 +101,10 @@ class Redis(base.Driver):
         for base_field in ["base_id", "timestamp"]:
             if base_field not in fields:
                 fields.append(base_field)
-        ids = self.db.scan_iter(match=self.namespace + query)
-        traces = [jsonutils.loads(self.db.get(i)) for i in ids]
+
         result = []
-        for trace in traces:
+        for data in self._query_db(args=[base_id+'*']):
+            trace = jsonutils.loads(data)
             result.append({key: value for key, value in trace.iteritems()
                            if key in fields})
         return result
@@ -89,8 +114,7 @@ class Redis(base.Driver):
 
         :param base_id: Base id of trace elements.
         """
-        for key in self.db.scan_iter(match=self.namespace + base_id + "*"):
-            data = self.db.get(key)
+        for data in self._query_db(args=[base_id+'*']):
             n = jsonutils.loads(data)
             trace_id = n["trace_id"]
             parent_id = n["parent_id"]
@@ -101,7 +125,7 @@ class Redis(base.Driver):
             timestamp = n["timestamp"]
 
             self._append_results(trace_id, parent_id, name, project, service,
-                                 host, timestamp, n)
+                                    host, timestamp, n)
 
         return self._parse_results()
 
