@@ -26,6 +26,17 @@ from osprofiler import exc
 class BaseCommand(object):
     group_name = None
 
+# NOTE(ayelistratov): Ceilometer translates datetime objects to
+# strings, other drivers store this data in ISO Date format.
+# Since datetime.datetime is not JSON serializable by default,
+# this method will handle that.
+def _datetime_json_serialize(obj):
+    if hasattr(obj, "isoformat"):
+        return obj.isoformat()
+    else:
+        return obj
+
+
 
 class TraceCommands(BaseCommand):
     group_name = "trace"
@@ -68,18 +79,8 @@ class TraceCommands(BaseCommand):
                    "used in the command." % args.trace)
             raise exc.CommandError(msg)
 
-        # NOTE(ayelistratov): Ceilometer translates datetime objects to
-        # strings, other drivers store this data in ISO Date format.
-        # Since datetime.datetime is not JSON serializable by default,
-        # this method will handle that.
-        def datetime_json_serialize(obj):
-            if hasattr(obj, "isoformat"):
-                return obj.isoformat()
-            else:
-                return obj
-
         if args.use_json:
-            output = json.dumps(trace, default=datetime_json_serialize,
+            output = json.dumps(trace, default=_datetime_json_serialize,
                                 separators=(",", ": "),
                                 indent=2)
         elif args.use_html:
@@ -88,7 +89,7 @@ class TraceCommands(BaseCommand):
                 output = html_template.read().replace(
                     "$DATA", json.dumps(trace, indent=4,
                                         separators=(",", ": "),
-                                        default=datetime_json_serialize))
+                                        default=_datetime_json_serialize))
                 if args.local_libs:
                     output = output.replace("$LOCAL", "true")
                 else:
@@ -107,6 +108,29 @@ class TraceCommands(BaseCommand):
                 output_file.write(output)
         else:
             print(output)
+
+
+    @cliutils.arg("query", help="Query to pass")
+    @cliutils.arg("--fields", help="Fields to get",
+                  default='base_id,timestamp')
+    @cliutils.arg("--connection-string", dest="conn_str",
+                  default=(cliutils.env("OSPROFILER_CONNECTION_STRING") or
+                           "ceilometer://"),
+                  help="Storage driver's connection string. Defaults to "
+                       "env[OSPROFILER_CONNECTION_STRING] if set, else "
+                       "ceilometer://")
+    def list(self, args):
+        try:
+            engine = base.get_driver(args.conn_str, **args.__dict__)
+        except Exception as e:
+            raise exc.CommandError(e.message)
+
+        trace = engine.list_traces(query=args.query, fields=args.fields.split(","))
+        output = json.dumps(trace, default=_datetime_json_serialize,
+                                separators=(",", ": "),
+                                indent=2)
+        print(output)
+
 
     def _create_dot_graph(self, trace):
         try:
