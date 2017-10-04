@@ -21,34 +21,60 @@ import six.moves.urllib.parse as parser
 from osprofiler.drivers import base
 from osprofiler import exc
 
-_SCAN_BASE_ID = '''
+import msgpack
+
+_QUERY_BASE_ID = {"v1": """
 local keys = {};
-local values = {};
+local results = {};
 local cursor = "0";
 local match = "%(namespace)s" .. ARGV[1];
-repeat
-    local result = redis.call("SCAN", cursor, "MATCH", match)
-    cursor = result[1];
-    keys = result[2];
-    for i, key in ipairs(keys) do
-        local value = redis.call("GET", key);
-        table.insert(values, value);
-    end
-until cursor == "0"
-return values;
-'''
+if #ARGV < 2 then
+    repeat
+        local result = redis.call("SCAN", cursor, "MATCH", match);
+        cursor = result[1];
+        keys = result[2];
+        for i, key in ipairs(keys) do
+            local value = redis.call("GET", key);
+            table.insert(results, value);
+        end
+    until cursor == "0"
+else
+    repeat
+        local result = redis.call("SCAN", cursor, "MATCH", match);
+        cursor = result[1];
+        keys = result[2];
+        for i, key in ipairs(keys) do
+            local values = cjson.decode(redis.call("GET", key));
+            local filtered = {};
+            for i=2,#ARGV do
+                local key = ARGV[i];
+                local value = values[key];
+                if value ~= nil then
+                    filtered[key] = value;
+                end
+            end
+            table.insert(results, cjson.encode(filtered));
+        end
+    until cursor == "0"
+end
+return results;
+"""
+}
 
-_STORE_BASE_ID = '''
-local namespace = ;
+_STORE_BASE_ID = {"v1": """
 local data = cjson.decode(ARGV[1]);
-local key = "%(namespace)s" .. data["base_id"] .. "_" .. data["trace_id"] .. "_" + data["timestamp"];
-return redis.call("SET", key, data);
-'''
+local key = "%(namespace)s" .. data["base_id"] ..
+        "_" .. data["trace_id"] ..
+        "_" .. data["timestamp"];
+return redis.call("SET", key, ARGV[1]);
+"""}
+
 
 class Redis(base.Driver):
     def __init__(self, connection_str, db=0, project=None,
-                 service=None, host=None, **kwargs):
+                 service=None, host=None, conf=cfg.CONF, **kwargs):
         """Redis driver for OSProfiler."""
+        conf = conf.profiler
 
         super(Redis, self).__init__(connection_str, project=project,
                                     service=service, host=host)
@@ -61,9 +87,13 @@ class Redis(base.Driver):
                 "'pip install redis'.")
 
         self.db = StrictRedis.from_url(self.connection_str)
-        self.namespace = "osprofiler:"
-        self._query_db = self.db.register_script(_SCAN_BASE_ID % {'namespace': self.namespace})
-        self._store_db = self.db.register_script(_STORE_BASE_ID % {'namespace': self.namespace})
+        self.namespace = conf.redis_namespace
+        self._query_db = self.db.register_script(
+            _QUERY_BASE_ID[conf.redis_schema] % {"namespace": self.namespace}
+            )
+        self._store_db = self.db.register_script(
+            _STORE_BASE_ID[conf.redis_schema] % {"namespace": self.namespace}
+            )
 
     @classmethod
     def get_name(cls):
@@ -88,9 +118,7 @@ class Redis(base.Driver):
         data = info.copy()
         data["project"] = self.project
         data["service"] = self.service
-        key = self.namespace + data["base_id"] + "_" + data["trace_id"] + "_" + \
-            data["timestamp"]
-        self.db.set(key, jsonutils.dumps(data))
+        self._store_db(args=[jsonutils.dumps(data)])
 
     def list_traces(self, query="*", fields=[]):
         """Returns array of all base_id fields that match the given criteria
@@ -102,19 +130,14 @@ class Redis(base.Driver):
             if base_field not in fields:
                 fields.append(base_field)
 
-        result = []
-        for data in self._query_db(args=[base_id+'*']):
-            trace = jsonutils.loads(data)
-            result.append({key: value for key, value in trace.iteritems()
-                           if key in fields})
-        return result
+        return [jsonutils.loads(data) for data in self._query_db(args=[query]+fields) ]
 
     def get_report(self, base_id):
         """Retrieves and parses notification from Redis.
 
         :param base_id: Base id of trace elements.
         """
-        for data in self._query_db(args=[base_id+'*']):
+        for data in self._query_db(args=[base_id + "*"]):
             n = jsonutils.loads(data)
             trace_id = n["trace_id"]
             parent_id = n["parent_id"]
