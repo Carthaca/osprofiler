@@ -134,6 +134,21 @@ This parameter defines the name (for example:
 sentinal_service_name=mymaster).
 """)
 
+_redis_schema_opt = cfg.StrOpt(
+    "redis_schema",
+    default="v1",
+    help="""
+Sets the redis schema. 'v1' means a flat mapping of the trace-id, timestamp
+to a key, and a json encoded value of all the options
+""")
+
+_redis_namespace_opt = cfg.StrOpt(
+    "redis_namespace",
+    default="osprofiler:",
+    help="""
+Namespace / prefix for all the redis keys
+""")
+
 
 _PROFILER_OPTS = [
     _enabled_opt,
@@ -144,7 +159,9 @@ _PROFILER_OPTS = [
     _es_scroll_time_opt,
     _es_scroll_size_opt,
     _socket_timeout_opt,
-    _sentinel_service_name_opt
+    _sentinel_service_name_opt,
+    _redis_schema_opt,
+    _redis_namespace_opt
 ]
 
 cfg.CONF.register_opts(_PROFILER_OPTS, group=_profiler_opt_group)
