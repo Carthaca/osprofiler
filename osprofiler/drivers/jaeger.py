@@ -15,15 +15,18 @@
 
 import collections
 import datetime
+import logging
+import os
 import time
 
+import six.moves.urllib.parse as parser
+from jaeger_client.metrics.prometheus import PrometheusMetricsFactory
 from oslo_config import cfg
 from oslo_serialization import jsonutils
-import six.moves.urllib.parse as parser
 
 from osprofiler import _utils as utils
-from osprofiler.drivers import base
 from osprofiler import exc
+from osprofiler.drivers import base
 
 
 class Jaeger(base.Driver):
@@ -46,14 +49,19 @@ class Jaeger(base.Driver):
         parsed_url = parser.urlparse(connection_str)
         cfg = {
             "local_agent": {
-                "reporting_host": parsed_url.hostname,
-                "reporting_port": parsed_url.port,
+                "reporting_host": os.getenv('JAEGER_AGENT_HOST', parsed_url.hostname),
+                "reporting_port": os.getenv('JAEGER_AGENT_PORT', parsed_url.port),
             }
         }
+        log_level = logging.DEBUG
+        logging.getLogger('').handlers = []
+        logging.basicConfig(format='%(asctime)s %(message)s', level=log_level)
 
         # Initialize tracer for each profiler
         service_name = "{}-{}".format(project, service)
-        config = jaeger_client.Config(cfg, service_name=service_name)
+        config = jaeger_client.Config(cfg, service_name=service_name,
+                                      validate=True,
+                                      metrics_factory=PrometheusMetricsFactory(namespace=service_name))
         self.tracer = config.initialize_tracer()
 
         self.spans = collections.deque()
@@ -103,6 +111,7 @@ class Jaeger(base.Driver):
                 span.log_kv({"message": payload["info"]["message"]})
 
             span.finish(finish_time=time.time())
+            time.sleep(2)
 
     def get_report(self, base_id):
         """Please use Jaeger Tracing UI for this task."""
