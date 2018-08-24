@@ -19,7 +19,6 @@ import os
 import time
 
 import six.moves.urllib.parse as parser
-from jaeger_client.metrics.prometheus import PrometheusMetricsFactory
 from oslo_config import cfg
 from oslo_serialization import jsonutils
 
@@ -37,7 +36,10 @@ class Jaeger(base.Driver):
                                      service=service, host=host)
         try:
             import jaeger_client
+            from jaeger_client.metrics.prometheus import PrometheusMetricsFactory
+
             self.jaeger_client = jaeger_client
+            self.PrometheusMetricsFactory = PrometheusMetricsFactory
         except ImportError:
             raise exc.CommandError(
                 "To use OSProfiler with Uber Jaeger tracer, "
@@ -57,7 +59,7 @@ class Jaeger(base.Driver):
         service_name = "{}-{}".format(project, service)
         config = jaeger_client.Config(cfg, service_name=service_name,
                                       validate=True,
-                                      metrics_factory=PrometheusMetricsFactory(namespace=project))
+                                      metrics_factory=self.PrometheusMetricsFactory(namespace=project))
         self.tracer = config.initialize_tracer()
 
         self.spans = collections.deque()
