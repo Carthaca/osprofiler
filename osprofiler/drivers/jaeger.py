@@ -61,7 +61,7 @@ class Jaeger(base.Driver):
         service_name = "{}-{}".format(project, service)
         config = jaeger_client.Config(cfg, service_name=service_name,
                                       validate=True,
-                                      metrics_factory=PrometheusMetricsFactory(namespace=service_name))
+                                      metrics_factory=PrometheusMetricsFactory(namespace=project))
         self.tracer = config.initialize_tracer()
 
         self.spans = collections.deque()
