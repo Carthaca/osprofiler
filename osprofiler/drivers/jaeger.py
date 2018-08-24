@@ -15,7 +15,6 @@
 
 import collections
 import datetime
-import logging
 import os
 import time
 
@@ -53,9 +52,6 @@ class Jaeger(base.Driver):
                 "reporting_port": os.getenv('JAEGER_AGENT_PORT', parsed_url.port),
             }
         }
-        log_level = logging.DEBUG
-        logging.getLogger('').handlers = []
-        logging.basicConfig(format='%(asctime)s %(message)s', level=log_level)
 
         # Initialize tracer for each profiler
         service_name = "{}-{}".format(project, service)
