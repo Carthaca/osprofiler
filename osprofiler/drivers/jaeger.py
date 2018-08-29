@@ -46,9 +46,15 @@ class Jaeger(base.Driver):
 
         parsed_url = parser.urlparse(connection_str)
         cfg = {
-            "local_agent": {
-                "reporting_host": os.getenv('JAEGER_AGENT_HOST', parsed_url.hostname),
-                "reporting_port": os.getenv('JAEGER_AGENT_PORT', parsed_url.port),
+            'sampler': {
+                'type': 'const',
+                'param': 0.01,
+            },
+            'logging': True,
+            'metrics': True,
+            'local_agent': {
+                'reporting_host': os.getenv('JAEGER_AGENT_HOST', parsed_url.hostname),
+                'reporting_port': os.getenv('JAEGER_AGENT_PORT', parsed_url.port),
             }
         }
 
