@@ -107,7 +107,8 @@ class Jaeger(base.Driver):
             if payload["info"].get("etype") is not None:
                 span.set_tag("error", True)
                 span.log_kv({"error.kind": payload["info"]["etype"]})
-                span.log_kv({"message": payload["info"]["message"]})
+                if payload["info"].has("message"):
+                    span.log_kv({"message": payload["info"]["message"]})
 
             span.finish(finish_time=time.time())
             time.sleep(2)
